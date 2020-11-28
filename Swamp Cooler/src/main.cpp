@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <LiquidCrystal.h>
 //CPE 301- Final Project
 //Swamp Cooler
 //Created by Dylan Cox and Erik Marsh
@@ -43,6 +44,20 @@ volatile unsigned char *myTIFR1   = (unsigned char *) 0x36;   //Timer/Counter1 I
 unsigned int clkstart=1;
 unsigned int liquid_level;
 
+// LCD pin mapping:
+//  RS => digital 23
+//  E  => digital 25
+//  D4 => digital 22
+//  D5 => digital 24
+//  D6 => digital 26
+//  D7 => digital 28
+LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
+int LCDErrorCode = 0;
+const char * ERROR_MESSAGES[] = {
+  " ",
+  "WATER LEVEL LOW"
+};
+
 ISR(TIMER1_OVF_vect){ //MODIFY CODE to toggle PB4 "RED" LED from water sensor
   unsigned char h2olow[] = {87,65,84,69,82,32,76,69,86,69,76,32,76,79,87,10};
 
@@ -54,16 +69,22 @@ ISR(TIMER1_OVF_vect){ //MODIFY CODE to toggle PB4 "RED" LED from water sensor
     *port_b = 0x10;             //Turns on PB4-LED if ADC value is less that 127.
                                 //turn off motor and all LEDs
     
-    //Writes water level low to *my_UDRO (serial monitor)
-    for (unsigned int q=0;q<16;q++){     //Runs only if transmission is clear and x<8  
-      while (!(*my_UCSR0A &(TBE)));
-      *my_UDR0= h2olow[q];
-    }
+    // //Writes water level low to *my_UDRO (serial monitor)
+    // for (unsigned int q=0;q<16;q++){     //Runs only if transmission is clear and x<8  
+    //   while (!(*my_UCSR0A &(TBE)));
+    //   *my_UDR0= h2olow[q];
+    //  }
+
+    // sets lcd error code to 1, printing the message "WATER LEVEL LOW"
+    LCDErrorCode = 1;
   }
   //Transistions to Idle State
   else{
     *port_b = 0x28;     //Turns off PB4-LED and turns on PB6-LED if ADC value is greater that 300
-   //Needs to turn off motor
+    //Needs to turn off motor
+
+    // sets error message to none
+    LCDErrorCode = 0;
   }
   
   *myTCCR1B |= 0x01;    //Starts clock, (pg 157), by enbling bit 0
@@ -88,6 +109,10 @@ void setup() {
   setToggleable(GREEN_LED, 0);
   setToggleable(BLUE_LED, 0);
   setToggleable(YELLOW_LED, 0);
+
+  // initialize LCD screen
+  lcd.begin(16, 2);
+  //lcd.print("Hello, world!");
 }
 
 
@@ -111,6 +136,9 @@ void adc_init(){
 void loop() {
   //Collect input from ADC
   liquid_level= adc_read(0);       //takes input from ADC A0 for reading
+  lcd.setCursor(0, 0);
+  lcd.clear();
+  lcd.print(ERROR_MESSAGES[LCDErrorCode]);
 }
 
 
