@@ -24,6 +24,13 @@ volatile unsigned int  *my_ADCDATA = (unsigned int  *)0x78;   //Data register is
 volatile unsigned char *portDDR_b = (unsigned char *) 0x24;   //Port B Data Direction Register (pg. 96)
 volatile unsigned char *port_b    = (unsigned char *) 0x25;   //Port B Data Register (pg. 96)
 
+// using port B as the port for togglable circuit components (LEDs, fan motor)
+const unsigned char RED_LED    = 0x10; // PB4
+const unsigned char GREEN_LED  = 0x20; // PB5
+const unsigned char BLUE_LED   = 0x40; // PB6
+const unsigned char YELLOW_LED = 0x80; // PB7
+const unsigned char FAN_MOTOR  = 0x01; // PB0
+
 //Timer/Counter Registers
 volatile unsigned char *myTCCR1A  = (unsigned char *) 0x80;   //Timer/Counter1 Control Register A (pg. 156)
 volatile unsigned char *myTCCR1B  = (unsigned char *) 0x81;   //Timer/Counter1 Control Register B (pg. 156)
@@ -75,6 +82,12 @@ void setup() {
   *myTCCR1B  |= 0x01;     //Starts clock, (pg 157), by enbling bit 0
   *my_ADMUX   = 0x40;     //Mask keeps bit 6 enabled and modifies bit2:0 to use ADC A0
   while (U0kbhit()==0){}; // wait for RDA = true indicating Serial.available
+
+  // initializes all LEDs to the OFF state
+  setToggleable(RED_LED, 0);
+  setToggleable(GREEN_LED, 0);
+  setToggleable(BLUE_LED, 0);
+  setToggleable(YELLOW_LED, 0);
 }
 
 
@@ -129,4 +142,17 @@ unsigned char U0kbhit()        //Serial.available
   if (*my_UDR0 & RDA){       //verifies established communications are clear 
     return 1;               //for the USART I/O Data Register 0
   }
+}
+
+void toggle(unsigned char destination)
+{
+    *port_b ^= destination;
+}
+
+void setToggleable(unsigned char destination, int logicLevel)
+{
+    if (logicLevel == 0)
+        *port_b &= ~(destination);
+    else
+        *port_b |= destination;
 }
