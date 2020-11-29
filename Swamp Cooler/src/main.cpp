@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <LiquidCrystal.h>
+#include <Servo.h>
 //CPE 301- Final Project
 //Swamp Cooler
 //Created by Dylan Cox and Erik Marsh
@@ -33,16 +34,24 @@ const unsigned char YELLOW_LED = 0x80; // PB7
 const unsigned char FAN_MOTOR  = 0x01; // PB0
 
 //Timer/Counter Registers
-volatile unsigned char *myTCCR1A  = (unsigned char *) 0x80;   //Timer/Counter1 Control Register A (pg. 156)
-volatile unsigned char *myTCCR1B  = (unsigned char *) 0x81;   //Timer/Counter1 Control Register B (pg. 156)
-volatile unsigned char *myTCCR1C  = (unsigned char *) 0x82;   //Timer/Counter1 Control Register C (pg. 157)
-volatile unsigned char *myTIMSK1  = (unsigned char *) 0x6F;   //TimerCounter1 Interrupt Mask Register (pg. 161)
-volatile unsigned int  *myTCNT1   = (unsigned  int *) 0x84;   //Timer/Counter1 (pg. 158)
-volatile unsigned char *myTIFR1   = (unsigned char *) 0x36;   //Timer/Counter1 Interrupt Flag Register (pg. 162)
+//Water Level Sensor ISR
+volatile unsigned char *myTCCR3A  = (unsigned char *) 0x90;   //Timer/Counter3 Control Register A (pg. 156)
+volatile unsigned char *myTCCR3B  = (unsigned char *) 0x91;   //Timer/Counter3 Control Register B (pg. 156)
+volatile unsigned char *myTCCR3C  = (unsigned char *) 0x92;   //Timer/Counter3 Control Register C (pg. 157)
+volatile unsigned char *myTIMSK3  = (unsigned char *) 0x71;   //TimerCounter3 Interrupt Mask Register (pg. 161)
+volatile unsigned int  *myTCNT3   = (unsigned  int *) 0x94;   //Timer/Counter3 (pg. 158)
+volatile unsigned char *myTIFR3   = (unsigned char *) 0x38;   //Timer/Counter3 Interrupt Flag Register (pg. 162)
 
 //Global Variable
 unsigned int clkstart=1;
 unsigned int liquid_level;
+
+Servo myservo;  // create servo object to control a servo
+// Servo mapping:
+// Brown    => ground
+// Red      => VCC
+// Orange   => digital 49
+// Pot dial => ADC A1
 
 // LCD pin mapping:
 //  RS => digital 23
@@ -58,50 +67,45 @@ const char * ERROR_MESSAGES[] = {
   "WATER LEVEL LOW"
 };
 
-ISR(TIMER1_OVF_vect){ //MODIFY CODE to toggle PB4 "RED" LED from water sensor
+ISR(TIMER3_OVF_vect){
   unsigned char h2olow[] = {87,65,84,69,82,32,76,69,86,69,76,32,76,79,87,10};
 
-  *myTCCR1B = 0xF8;             //Stops clock, no prescaler (pg.157), by disabling bit 0
-  *myTCNT1 = clkstart;          //Sets point for Timer/Counter1 to count up form (pg.158)
+  *myTCCR3B = 0xF8;             //Stops clock, no prescaler (pg.157), by disabling bit 0
+  *myTCNT3 = clkstart;          //Sets point for Timer/Counter1 to count up form (pg.158)
  
   //Enters Error State
   if(liquid_level <=300){     
-    *port_b = 0x10;             //Turns on PB4-LED if ADC value is less that 127.
-                                //turn off motor and all LEDs
+    *port_b = 0x10;             //Turns on PB4-LED if ADC value is less that 300.
+                                //turns off motor and all LEDs
     
-    // //Writes water level low to *my_UDRO (serial monitor)
-    // for (unsigned int q=0;q<16;q++){     //Runs only if transmission is clear and x<8  
-    //   while (!(*my_UCSR0A &(TBE)));
-    //   *my_UDR0= h2olow[q];
-    //  }
-
     // sets lcd error code to 1, printing the message "WATER LEVEL LOW"
     LCDErrorCode = 1;
   }
-  //Transistions to Idle State
+  //Transistions to Idle State if water was previously low
   else{
-    *port_b = 0x28;     //Turns off PB4-LED and turns on PB6-LED if ADC value is greater that 300
-    //Needs to turn off motor
 
+    if(LCDErrorCode){     //Go to Idle State
+      *port_b = 0x20;     //Turns off PB4-LED and turns on PB6-LED if ADC value is greater that 300
+                          //keeps motor off
+    }
     // sets error message to none
     LCDErrorCode = 0;
   }
   
-  *myTCCR1B |= 0x01;    //Starts clock, (pg 157), by enbling bit 0
+  *myTCCR3B |= 0x01;    //Starts clock, (pg 157), by enbling bit 0
 }
 
 void setup() {
   U0init(9600);           //setup UART
   adc_init();             //setup ADC
-  *portDDR_b |= 0xF0;     //sets PB7,6,5,4 as output
-  *myTCCR1A   = 0x00;     //set timer registers to zero
-  *myTCCR1B   = 0x00;     //^
-  *myTCCR1C   = 0x00;     //^
-  *myTIMSK1  |= 0x01;     //Enables bit 0 (Timer/Counter, Overflow Interrupt Enable)
-  *myTIFR1   |= 0x01;     //Enables bit 0 (Timer/Countern, Overflow Flag)
-  *myTCNT1    = clkstart; //Start timer/counter starting point
-  *myTCCR1B  |= 0x01;     //Starts clock, (pg 157), by enbling bit 0
-  *my_ADMUX   = 0x40;     //Mask keeps bit 6 enabled and modifies bit2:0 to use ADC A0
+  *portDDR_b |= 0xF1;     //sets PB7,6,5,4,0 as output
+  *myTCCR3A   = 0x00;     //set timer registers to zero
+  *myTCCR3B   = 0x00;     //^
+  *myTCCR3C   = 0x00;     //^
+  *myTIMSK3  |= 0x01;     //Enables bit 0 (Timer/Counter, Overflow Interrupt Enable)
+  *myTIFR3   |= 0x01;     //Enables bit 0 (Timer/Countern, Overflow Flag)
+  *myTCNT3    = clkstart; //Start timer/counter starting point
+  *myTCCR3B  |= 0x01;     //Starts clock, (pg 157), by enbling bit 0
   while (U0kbhit()==0){}; // wait for RDA = true indicating Serial.available
 
   // initializes all LEDs to the OFF state
@@ -113,6 +117,9 @@ void setup() {
   // initialize LCD screen
   lcd.begin(16, 2);
   //lcd.print("Hello, world!");
+
+  // initializes Servo
+  myservo.attach(49);  // attaches the servo on pin 49 to the servo object
 }
 
 
@@ -134,15 +141,31 @@ void adc_init(){
 
 
 void loop() {
-  //Collect input from ADC
+  //Collect input from ADC for water level
   liquid_level= adc_read(0);       //takes input from ADC A0 for reading
   lcd.setCursor(0, 0);
   lcd.clear();
   lcd.print(ERROR_MESSAGES[LCDErrorCode]);
+
+  //Servo Control
+  unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
+  val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
+  myservo.write(val);                  // sets the servo position according to the scaled value
+  delay(15);                           // waits for the servo to get there
 }
 
 
 unsigned int adc_read(unsigned char adc_channel){
+  unsigned char muxmask[]= {64,65,66,67,68,69,70,71,64,65,66,67,68,69,70,71};
+  unsigned char channel[]= {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+  
+  //AMUX mask for bit 2:0 is applied for individual channel used
+  for (unsigned int i=0; i<16;i++){
+    if (adc_channel == channel[i]){
+      *my_ADMUX &=0x00;                 //clears out bits before mask for a clean transfer
+      *my_ADMUX |= muxmask[i];          //Mask keeps bit 6 enabled and modifies bit2:0 depending on channel
+    }
+  }
   
   *my_ADCSRA |= 0b01000000;                //Enable bit 6: ADSC: ADC Start conversion
   while ((*my_ADCSRA &0b01000000) !=0);    //Wait for bit 6 to equal zero meaning that conversion is complete
