@@ -176,7 +176,11 @@ void loop() {
   if(!(*pin_L & 0x10)){
     for(volatile unsigned int q=0; q<1000;q++){};     //Debounces read and write to verify but is pressed and not noise
     if(!(*pin_L & 0x10)){
-      *myTCCR3B  |= 0x01;                             //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect) 
+      *myTCCR3B  |= 0x01;                             //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect)
+      if((*port_b & 0xEF) & (*port_b & 0xBF)){        //Enters idle state, green led, if not in error or running state. 
+        setToggleable(GREEN_LED, 1);
+        setToggleable(YELLOW_LED, 0);
+      }
       //Collect input from ADC for water level
       liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
 
@@ -210,6 +214,7 @@ void loop() {
       delay(15);                           // waits for the servo to get there
     }  
   }
+  //Disabled state
   else{
     *myTCCR3B = 0xF8;                      //Stops clock, no prescaler (pg.157), by disabling bit 0, no more monitoring
     setToggleable(RED_LED, 0);
@@ -217,6 +222,7 @@ void loop() {
     setToggleable(BLUE_LED, 0);
     setToggleable(YELLOW_LED, 1);
     setToggleable(FAN_MOTOR, 0);
+    *port_b &=0xFE;                       //Turns off fan, PB0 in disabled state
     datalog();
   }
 }
