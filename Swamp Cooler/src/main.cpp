@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <LiquidCrystal.h>
 #include <Servo.h>
+#include "RTClib.h"
 //CPE 301- Final Project
 //Swamp Cooler
 //Created by Dylan Cox and Erik Marsh
@@ -26,6 +27,7 @@ volatile unsigned int  *my_ADCDATA = (unsigned int  *)0x78;   //Data register is
 volatile unsigned char *portDDR_b = (unsigned char *) 0x24;   //Port B Data Direction Register (pg. 96)
 volatile unsigned char *port_b    = (unsigned char *) 0x25;   //Port B Data Register (pg. 96)
 
+
 // using port B as the port for togglable circuit components (LEDs, fan motor)
 const unsigned char RED_LED    = 0x10; // PB4
 const unsigned char GREEN_LED  = 0x20; // PB5
@@ -41,6 +43,11 @@ volatile unsigned char *myTCCR3C  = (unsigned char *) 0x92;   //Timer/Counter3 C
 volatile unsigned char *myTIMSK3  = (unsigned char *) 0x71;   //TimerCounter3 Interrupt Mask Register (pg. 161)
 volatile unsigned int  *myTCNT3   = (unsigned  int *) 0x94;   //Timer/Counter3 (pg. 158)
 volatile unsigned char *myTIFR3   = (unsigned char *) 0x38;   //Timer/Counter3 Interrupt Flag Register (pg. 162)
+
+//Registers for pushbutton (enable/disable)
+volatile unsigned char *portDDR_L = (unsigned char *) 0x10A;   //Port L Data Direction Register (pg. 96)
+volatile unsigned char *port_L    = (unsigned char *) 0x10B;   //Port L Data Register (pg. 96)
+volatile unsigned char *pin_L     = (unsigned char *) 0x109;   //Port L Input Pins Address (pg.96)
 
 //Global Variable
 unsigned int clkstart=1;
@@ -76,7 +83,8 @@ ISR(TIMER3_OVF_vect){
   //Enters Error State
   if(liquid_level <=300){     
     *port_b = 0x10;             //Turns on PB4-LED if ADC value is less that 300.
-                                //turns off motor and all LEDs
+     //RTC;                       //Logs date and time when motor turns off
+                                
     
     // sets lcd error code to 1, printing the message "WATER LEVEL LOW"
     LCDErrorCode = 1;
@@ -104,8 +112,7 @@ void setup() {
   *myTCCR3C   = 0x00;     //^
   *myTIMSK3  |= 0x01;     //Enables bit 0 (Timer/Counter, Overflow Interrupt Enable)
   *myTIFR3   |= 0x01;     //Enables bit 0 (Timer/Countern, Overflow Flag)
-  *myTCNT3    = clkstart; //Start timer/counter starting point
-  *myTCCR3B  |= 0x01;     //Starts clock, (pg 157), by enbling bit 0
+  *myTCNT3    = clkstart; //Set timer/counter starting point
   while (U0kbhit()==0){}; // wait for RDA = true indicating Serial.available
 
   // initializes all LEDs to the OFF state
@@ -120,6 +127,14 @@ void setup() {
 
   // initializes Servo
   myservo.attach(49);  // attaches the servo on pin 49 to the servo object
+
+  // disabled state control
+  *portDDR_L &= 0x10;       //sets PL4 as input
+  *port_L    |= 0x10;       //enables pullup resistor
+
+  // initialize RTC Module
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));//auto update from computer time
+  
 }
 
 
@@ -141,17 +156,30 @@ void adc_init(){
 
 
 void loop() {
-  //Collect input from ADC for water level
-  liquid_level= adc_read(0);       //takes input from ADC A0 for reading
-  lcd.setCursor(0, 0);
-  lcd.clear();
-  lcd.print(ERROR_MESSAGES[LCDErrorCode]);
-
-  //Servo Control
-  unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
-  val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
-  myservo.write(val);                  // sets the servo position according to the scaled value
-  delay(15);                           // waits for the servo to get there
+  if(!(*pin_L & 0x10)){
+    for(volatile unsigned int q=0; q<1000;q++){};     //Debounces read and write to verify but is pressed and not noise
+    if(!(*pin_L & 0x10)){
+      *myTCCR3B  |= 0x01;                             //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect) 
+      //Collect input from ADC for water level
+      liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
+      lcd.setCursor(0, 0);
+      lcd.clear();
+      lcd.print(ERROR_MESSAGES[LCDErrorCode]);
+    
+      //Servo Control
+      unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
+      val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
+      myservo.write(val);                  // sets the servo position according to the scaled value
+      delay(15);                           // waits for the servo to get there
+    }  
+  }
+  else{
+    *myTCCR3B = 0xF8;                      //Stops clock, no prescaler (pg.157), by disabling bit 0, no more monitoring
+    setToggleable(RED_LED, 0);
+    setToggleable(GREEN_LED, 0);
+    setToggleable(BLUE_LED, 0);
+    setToggleable(YELLOW_LED, 1);
+  }
 }
 
 
@@ -191,7 +219,7 @@ void U0init(unsigned long U0baud)       //Serial.begin()
 unsigned char U0kbhit()        //Serial.available
 {
   if (*my_UDR0 & RDA){       //verifies established communications are clear 
-    return 1;               //for the USART I/O Data Register 0
+    return 1;                //for the USART I/O Data Register 0
   }
 }
 
@@ -206,4 +234,15 @@ void setToggleable(unsigned char destination, int logicLevel)
         *port_b &= ~(destination);
     else
         *port_b |= destination;
+}
+
+void RTC(){
+  char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+
+
+  //Writes ADC to *my_UDRO (serial plot)
+  for (q=0;q<9;q++){                      //Runs only if transmission is clear and x<8  
+    while (!(*my_UCSR0A &(TBE)));
+    *my_UDR0= ADC_set[q];
+  
 }
