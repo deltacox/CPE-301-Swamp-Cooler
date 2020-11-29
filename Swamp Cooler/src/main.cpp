@@ -41,7 +41,7 @@ const unsigned char FAN_MOTOR  = 0x01; // PB0
 volatile unsigned char *myTCCR3A  = (unsigned char *) 0x90;   //Timer/Counter3 Control Register A (pg. 156)
 volatile unsigned char *myTCCR3B  = (unsigned char *) 0x91;   //Timer/Counter3 Control Register B (pg. 156)
 volatile unsigned char *myTCCR3C  = (unsigned char *) 0x92;   //Timer/Counter3 Control Register C (pg. 157)
-volatile unsigned char *myTIMSK3  = (unsigned char *) 0x71;   //TimerCounter3 Interrupt Mask Register (pg. 161)
+volatile unsigned char *myTIMSK3  = (unsigned char *) 0x71;   //Timer/Counter3 Interrupt Mask Register (pg. 161)
 volatile unsigned int  *myTCNT3   = (unsigned  int *) 0x94;   //Timer/Counter3 (pg. 158)
 volatile unsigned char *myTIFR3   = (unsigned char *) 0x38;   //Timer/Counter3 Interrupt Flag Register (pg. 162)
 
@@ -68,6 +68,10 @@ Servo myservo;  // create servo object to control a servo
 //  D5 => digital 24
 //  D6 => digital 26
 //  D7 => digital 28
+//  Vss=> ground
+//  Vdd=> 5V
+//  V0 => ground
+//  RW => ground
 LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
 
 // DHT humidity/temperature sensor
@@ -79,10 +83,13 @@ const char * ERROR_MESSAGES[] = {
   "WATER LEVEL LOW"
 };
 
+float temp = 0.0f;
+float humidity = 0.0f;
+
 ISR(TIMER3_OVF_vect){
   unsigned char h2olow[] = {87,65,84,69,82,32,76,69,86,69,76,32,76,79,87,10};
 
-  *myTCCR3B = 0xF8;             //Stops clock, no prescaler (pg.157), by disabling bit 0
+  *myTCCR3B &= 0xF8;             //Stops clock, no prescaler (pg.157), by disabling bit 0
   *myTCNT3 = clkstart;          //Sets point for Timer/Counter1 to count up form (pg.158)
  
   //Enters Error State
@@ -118,6 +125,7 @@ void setup() {
   *myTIMSK3  |= 0x01;     //Enables bit 0 (Timer/Counter, Overflow Interrupt Enable)
   *myTIFR3   |= 0x01;     //Enables bit 0 (Timer/Countern, Overflow Flag)
   *myTCNT3    = clkstart; //Set timer/counter starting point
+
   while (U0kbhit()==0){}; // wait for RDA = true indicating Serial.available
 
   // initializes all LEDs to the OFF state
@@ -125,10 +133,11 @@ void setup() {
   setToggleable(GREEN_LED, 0);
   setToggleable(BLUE_LED, 0);
   setToggleable(YELLOW_LED, 0);
+  setToggleable(FAN_MOTOR, 0);
 
   // initialize LCD screen
   lcd.begin(16, 2);
-  //lcd.print("Hello, world!");
+  lcd.print("Hello, world!");
 
   // initializes Servo
   myservo.attach(49);  // attaches the servo on pin 49 to the servo object
@@ -142,8 +151,6 @@ void setup() {
 
   // initialize humidity/temperature sensor
   dht.begin();
-
-  lcd.print("hello, world");
 }
 
 
@@ -171,6 +178,15 @@ void loop() {
       *myTCCR3B  |= 0x01;                             //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect) 
       //Collect input from ADC for water level
       liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
+
+      temp = dht.readTemperature(true);
+      humidity = dht.readHumidity();
+
+      if (temp >= 75.0f)
+        setToggleable(FAN_MOTOR, 1);
+      else
+        setToggleable(FAN_MOTOR, 0);
+
       lcd.setCursor(0, 0);
       lcd.clear();
       if (LCDErrorCode != 0)
@@ -178,11 +194,11 @@ void loop() {
       else
       {
         lcd.print("Temp: ");
-        lcd.print(dht.readTemperature(true));
+        lcd.print(temp);
         lcd.print("*F");
         lcd.setCursor(0, 1);
         lcd.print("Humi: ");
-        lcd.print(dht.readHumidity());
+        lcd.print(humidity);
         lcd.print("%");
       }
     
@@ -199,6 +215,7 @@ void loop() {
     setToggleable(GREEN_LED, 0);
     setToggleable(BLUE_LED, 0);
     setToggleable(YELLOW_LED, 1);
+    setToggleable(FAN_MOTOR, 0);
   }
 }
 
