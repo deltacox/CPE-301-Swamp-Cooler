@@ -10,7 +10,10 @@
                 "C:\\Program Files (x86)\\Arduino\\hardware\\arduino\\avr\\**",
                 "C:\\Users\\Erik\\Documents\\Arduino\\libraries\\DHT_sensor_library",
                 "C:\\Users\\Erik\\Documents\\Arduino\\libraries\\Adafruit_Unified_Sensor",
-                "C:\\Users\\Erik\\Documents\\Arduino\\libraries\\RTClib"
+                "C:\\Users\\Erik\\Documents\\Arduino\\libraries\\RTClib",
+                "C:\\Users\\Erik\\Documents\\Arduino\\libraries\\Time",
+                "C:\\Users\\Erik\\Documents\\Arduino\\libraries\\TinyWireM",
+                "C:\\Users\\Erik\\Documents\\Arduino\\libraries\\DS1307RTC"
             ],
             "forcedInclude": [
                 "C:\\Program Files (x86)\\Arduino\\hardware\\arduino\\avr\\cores\\arduino\\Arduino.h"
