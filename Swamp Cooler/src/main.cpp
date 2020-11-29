@@ -2,7 +2,10 @@
 #include <LiquidCrystal.h>
 #include <Servo.h>
 #include <DHT.h>
-#include "RTClib.h"
+#include <RTClib.h>
+#include <Wire.h>
+#include <TimeLib.h>
+#include <DS1307RTC.h>
 //CPE 301- Final Project
 //Swamp Cooler
 //Created by Dylan Cox and Erik Marsh
@@ -53,7 +56,7 @@ volatile unsigned char *pin_L     = (unsigned char *) 0x109;   //Port L Input Pi
 //Global Variable
 unsigned int clkstart=1;
 unsigned int liquid_level;
-
+RTC_DS1307 rtc;
 Servo myservo;  // create servo object to control a servo
 // Servo mapping:
 // Brown    => ground
@@ -94,9 +97,7 @@ ISR(TIMER3_OVF_vect){
  
   //Enters Error State
   if(liquid_level <=300){     
-    *port_b = 0x10;             //Turns on PB4-LED if ADC value is less that 300.
-     //RTC;                       //Logs date and time when motor turns off
-                                
+    *port_b = 0x10;             //Turns on PB4-LED if ADC value is less that 300.                                
     
     // sets lcd error code to 1, printing the message "WATER LEVEL LOW"
     LCDErrorCode = 1;
@@ -146,8 +147,8 @@ void setup() {
   *portDDR_L &= 0x10;       //sets PL4 as input
   *port_L    |= 0x10;       //enables pullup resistor
 
-  // initialize RTC Module
-  //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));//auto update from computer time
+  // initialize data log
+  rtc.adjust(DateTime(F(__DATE__), F(__TIME__))); //auto update from computer time
 
   // initialize humidity/temperature sensor
   dht.begin();
@@ -216,6 +217,7 @@ void loop() {
     setToggleable(BLUE_LED, 0);
     setToggleable(YELLOW_LED, 1);
     setToggleable(FAN_MOTOR, 0);
+    datalog();
   }
 }
 
@@ -273,13 +275,151 @@ void setToggleable(unsigned char destination, int logicLevel)
         *port_b |= destination;
 }
 
-// void RTC(){
-//   char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+void datalog(){
+  unsigned char ASCII_num[] = {48,49,50,51,52,53,54,55,56,57};
+  unsigned char storage[] = {0,0,0,0,47};               
+  unsigned char num[]     = {0,1,2,3,4,5,6,7,8,9};             //11 
+  unsigned char q, temp;
+  unsigned int data;
 
-
-//   //Writes ADC to *my_UDRO (serial plot)
-//   for (q=0;q<9;q++){                      //Runs only if transmission is clear and x<8  
-//     while (!(*my_UCSR0A &(TBE)));
-//     *my_UDR0= ADC_set[q];
+  DateTime now =rtc.now();
   
-// }
+  data=now.year(),DEC;
+  storage[3]=data%10;      //Assigns year to array starting at LSB
+  temp=data/10;            //Removes LSB from year
+
+  //Puts data into an array
+  for (q=3;q>0;q--){
+    storage[q-1]=temp%10;      //Assigns year to array starting at LSB
+    temp=temp/10;            //Removes LSB from year
+  }
+  
+  //Compares Storage array values with 0-9 and writes in ASCII equivalent dec value
+  for (q=0;q<4;q++){
+    for(unsigned int x=0; x<10;x++){
+      if (storage[q]==num[x]){
+        storage[q]=ASCII_num[x];
+      }
+    }
+  }
+
+  //Writes year to *my_UDRO (serial plot)
+  for (q=0;q<5;q++){                      //Runs only if transmission is clear and x<8  
+    while (!(*my_UCSR0A &(TBE)));
+    *my_UDR0= storage[q];
+  }
+
+
+  unsigned char holding[] = {0,0,47};
+  data=now.month(),DEC;
+  holding[1]=data%10;      //Assigns month to array starting at LSB
+  temp=data/10;            //Removes LSB from month
+  holding[0]=temp%10;      //Assigns month to array starting at LSB
+
+  //Compares ADC array values with 0-9 and writes in ASCII equivalent dec value
+  for (q=0;q<2;q++){
+    for(unsigned int x=0; x<10;x++){
+      if (holding[q]==num[x]){
+        holding[q]=ASCII_num[x];
+      }
+    }
+  }
+  //Writes month to *my_UDRO (serial plot)
+  for (q=0;q<3;q++){                      //Runs only if transmission is clear and x<8  
+    while (!(*my_UCSR0A &(TBE)));
+    *my_UDR0= holding[q];
+  }
+
+  data=now.day(),DEC;
+  holding[1]=data%10;      //Assigns month to array starting at LSB
+  temp=data/10;            //Removes LSB from month
+  holding[0]=temp%10;      //Assigns month to array starting at LSB
+
+  //Compares holding array values with 0-9 and writes in ASCII equivalent dec value
+  for (q=0;q<2;q++){
+    for(unsigned int x=0; x<10;x++){
+      if (holding[q]==num[x]){
+        holding[q]=ASCII_num[x];
+      }
+    }
+  }
+  //Writes day to *my_UDRO (serial plot)
+  for (q=0;q<2;q++){                      //Runs only if transmission is clear and x<8  
+    while (!(*my_UCSR0A &(TBE)));
+    *my_UDR0= holding[q];
+  }
+  while (!(*my_UCSR0A &(TBE)));
+  *my_UDR0= 32;
+  while (!(*my_UCSR0A &(TBE)));
+  *my_UDR0= 40;
+
+  while (!(*my_UCSR0A &(TBE)));
+  *my_UDR0= 41;
+    while (!(*my_UCSR0A &(TBE)));
+  *my_UDR0= 32;
+  
+  data=now.hour(),DEC;
+  holding[1]=data%10;      //Assigns month to array starting at LSB
+  temp=data/10;            //Removes LSB from month
+  holding[0]=temp%10;      //Assigns month to array starting at LSB
+
+  //Compares holding array values with 0-9 and writes in ASCII equivalent dec value
+  for (q=0;q<2;q++){
+    for(unsigned int x=0; x<10;x++){
+      if (holding[q]==num[x]){
+        holding[q]=ASCII_num[x];
+      }
+    }
+  }
+  //Writes hour to *my_UDRO (serial plot)
+  for (q=0;q<2;q++){                      //Runs only if transmission is clear and x<8  
+    while (!(*my_UCSR0A &(TBE)));
+    *my_UDR0= holding[q];
+  }
+
+  while (!(*my_UCSR0A &(TBE)));
+  *my_UDR0= 58;
+  
+  data=now.minute(),DEC;
+  holding[1]=data%10;      //Assigns minute to array starting at LSB
+  temp=data/10;            //Removes LSB from month
+  holding[0]=temp%10;      //Assigns minute to array starting at LSB
+
+  //Compares holding array values with 0-9 and writes in ASCII equivalent dec value
+  for (q=0;q<2;q++){
+    for(unsigned int x=0; x<10;x++){
+      if (holding[q]==num[x]){
+        holding[q]=ASCII_num[x];
+      }
+    }
+  }
+  //Writes minute to *my_UDRO (serial plot)
+  for (q=0;q<2;q++){                      //Runs only if transmission is clear and x<8  
+    while (!(*my_UCSR0A &(TBE)));
+    *my_UDR0= holding[q];
+  }
+  while (!(*my_UCSR0A &(TBE)));
+  *my_UDR0= 58;
+
+  data=now.second(),DEC;
+  holding[1]=data%10;      //Assigns month to array starting at LSB
+  temp=data/10;            //Removes LSB from month
+  holding[0]=temp%10;      //Assigns month to array starting at LSB
+
+  //Compares ADC array values with 0-9 and writes in ASCII equivalent dec value
+  for (q=0;q<2;q++){
+    for(unsigned int x=0; x<10;x++){
+      if (holding[q]==num[x]){
+        holding[q]=ASCII_num[x];
+      }
+    }
+  }
+  //Writes second to *my_UDRO (serial plot)
+  for (q=0;q<2;q++){                      //Runs only if transmission is clear and x<8  
+    while (!(*my_UCSR0A &(TBE)));
+    *my_UDR0= holding[q];
+  }
+  while (!(*my_UCSR0A &(TBE)));
+  *my_UDR0= 10;
+  delay(1000);
+}
