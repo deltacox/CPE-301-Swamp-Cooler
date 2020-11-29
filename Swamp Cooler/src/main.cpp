@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <LiquidCrystal.h>
 #include <Servo.h>
+#include <DHT.h>
 #include "RTClib.h"
 //CPE 301- Final Project
 //Swamp Cooler
@@ -68,9 +69,13 @@ Servo myservo;  // create servo object to control a servo
 //  D6 => digital 26
 //  D7 => digital 28
 LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
+
+// DHT humidity/temperature sensor
+DHT dht(32, DHT11);
+
 int LCDErrorCode = 0;
 const char * ERROR_MESSAGES[] = {
-  " ",
+  "TESTTESTTEST",
   "WATER LEVEL LOW"
 };
 
@@ -133,8 +138,12 @@ void setup() {
   *port_L    |= 0x10;       //enables pullup resistor
 
   // initialize RTC Module
-  rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));//auto update from computer time
-  
+  //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));//auto update from computer time
+
+  // initialize humidity/temperature sensor
+  dht.begin();
+
+  lcd.print("hello, world");
 }
 
 
@@ -164,7 +173,18 @@ void loop() {
       liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
       lcd.setCursor(0, 0);
       lcd.clear();
-      lcd.print(ERROR_MESSAGES[LCDErrorCode]);
+      if (LCDErrorCode != 0)
+        lcd.print(ERROR_MESSAGES[LCDErrorCode]);
+      else
+      {
+        lcd.print("Temp: ");
+        lcd.print(dht.readTemperature(true));
+        lcd.print("*F");
+        lcd.setCursor(0, 1);
+        lcd.print("Humi: ");
+        lcd.print(dht.readHumidity());
+        lcd.print("%");
+      }
     
       //Servo Control
       unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
@@ -236,13 +256,13 @@ void setToggleable(unsigned char destination, int logicLevel)
         *port_b |= destination;
 }
 
-void RTC(){
-  char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+// void RTC(){
+//   char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
 
 
-  //Writes ADC to *my_UDRO (serial plot)
-  for (q=0;q<9;q++){                      //Runs only if transmission is clear and x<8  
-    while (!(*my_UCSR0A &(TBE)));
-    *my_UDR0= ADC_set[q];
+//   //Writes ADC to *my_UDRO (serial plot)
+//   for (q=0;q<9;q++){                      //Runs only if transmission is clear and x<8  
+//     while (!(*my_UCSR0A &(TBE)));
+//     *my_UDR0= ADC_set[q];
   
-}
+// }
