@@ -80,7 +80,7 @@ LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
 // DHT humidity/temperature sensor
 DHT dht(32, DHT11);
 
-int LCDErrorCode = 0, KillswitchEngage = 0, StartFan = 0, x=0, k=0;
+int LCDErrorCode = 0, MotorCrntStatus=0;
 
 bool stateDisabled = false;
 unsigned char lastButtonState = 0x00;
@@ -105,12 +105,7 @@ ISR(TIMER3_OVF_vect){
  
   //Enters Error State
   if(liquid_level <=300){     
-    //*port_b = 0x10;             //Turns on PB4-LED and kills motor if ADC value is less that 300. !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     systemState = 2;
-    if (x==1){
-      KillswitchEngage = 1;       //Sets flag to turn off fan
-      x=0;                                 
-    }
     // sets lcd error code to 1, printing the message "WATER LEVEL LOW"
     LCDErrorCode = 1;
   }
@@ -118,9 +113,7 @@ ISR(TIMER3_OVF_vect){
   else{
 
     if(LCDErrorCode){     //Go to Idle State
-      //*port_b = 0x20;     //Turns off PB4-LED and turns on PB6-LED if ADC value is greater that 300
       systemState = 1;
-                          //keeps motor off
     }
     // sets error message to none
     LCDErrorCode = 0;
@@ -215,13 +208,11 @@ void setToggleable(unsigned char destination, int logicLevel)
         *port_b &= ~(destination);
     else
         *port_b |= destination;
-    //if ((destination == FAN_MOTOR) && k==1){
-    if (destination == FAN_MOTOR)
-    {
-      //cli(); // disable interrupts so the timer ISR doesn't trigger
-      //datalog();
-      //sei(); // enable interrupts
-      //k=0;
+
+    if ((destination == FAN_MOTOR)){
+      *myTCCR3B = 0xF8;                      //Stops clock, no prescaler (pg.157), by disabling bit 0, no more monitoring
+      datalog();
+      *myTCCR3B  |= 0x01;                    //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect)
     }
 }
 
@@ -434,7 +425,10 @@ void loop()
     setToggleable(GREEN_LED, 0);
     setToggleable(RED_LED, 0);
     setToggleable(BLUE_LED, 0);
-    setToggleable(FAN_MOTOR, 0);
+    if(MotorCrntStatus==1){
+      setToggleable(FAN_MOTOR, 0);
+      MotorCrntStatus =0;
+    }
   }
   break;
   case 1: // idle
@@ -443,7 +437,11 @@ void loop()
     setToggleable(GREEN_LED, 1);
     setToggleable(RED_LED, 0);
     setToggleable(BLUE_LED, 0);
-    setToggleable(FAN_MOTOR, 0);
+    
+    if(MotorCrntStatus==1){
+      setToggleable(FAN_MOTOR, 0); // explicitly disable fan
+      MotorCrntStatus =0;
+    }
     
     liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
 
@@ -471,8 +469,12 @@ void loop()
     setToggleable(GREEN_LED, 0);
     setToggleable(RED_LED, 1);
     setToggleable(BLUE_LED, 0);
-    setToggleable(FAN_MOTOR, 0); // explicitly disable fan
 
+    if(MotorCrntStatus==1){
+      setToggleable(FAN_MOTOR, 0); // explicitly disable fan
+      MotorCrntStatus =0;
+    }
+    
     liquid_level = adc_read(0);
 
     lcd.clear();
@@ -486,8 +488,12 @@ void loop()
     setToggleable(GREEN_LED, 0);
     setToggleable(RED_LED, 0);
     setToggleable(BLUE_LED, 1);
-    setToggleable(FAN_MOTOR, 1);
-
+    
+    if(MotorCrntStatus==0){
+      setToggleable(FAN_MOTOR, 1);
+      MotorCrntStatus=1;
+    }
+    
     liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
 
     temperature = dht.readTemperature(true);
