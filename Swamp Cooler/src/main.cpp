@@ -85,6 +85,12 @@ int LCDErrorCode = 0, KillswitchEngage = 0, StartFan = 0, x=0, k=0;
 bool stateDisabled = false;
 unsigned char lastButtonState = 0x00;
 
+// 0 => disabled (yellow light)
+// 1 => idle (green light)
+// 2 => error (red light)
+// 3 => running (blue light)
+int systemState = 0;
+
 const char * ERROR_MESSAGES[] = {
   "",
   "WATER LEVEL LOW"
@@ -99,7 +105,8 @@ ISR(TIMER3_OVF_vect){
  
   //Enters Error State
   if(liquid_level <=300){     
-    *port_b = 0x10;             //Turns on PB4-LED and kills motor if ADC value is less that 300.
+    //*port_b = 0x10;             //Turns on PB4-LED and kills motor if ADC value is less that 300. !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    systemState = 2;
     if (x==1){
       KillswitchEngage = 1;       //Sets flag to turn off fan
       x=0;                                 
@@ -111,7 +118,8 @@ ISR(TIMER3_OVF_vect){
   else{
 
     if(LCDErrorCode){     //Go to Idle State
-      *port_b = 0x20;     //Turns off PB4-LED and turns on PB6-LED if ADC value is greater that 300
+      //*port_b = 0x20;     //Turns off PB4-LED and turns on PB6-LED if ADC value is greater that 300
+      systemState = 1;
                           //keeps motor off
     }
     // sets error message to none
@@ -164,7 +172,6 @@ void setup() {
 
   // initialize LCD screen
   lcd.begin(16, 2);
-  lcd.print("Hello, world!");
 
   // initializes Servo
   myservo.attach(49);  // attaches the servo on pin 49 to the servo object
@@ -208,9 +215,13 @@ void setToggleable(unsigned char destination, int logicLevel)
         *port_b &= ~(destination);
     else
         *port_b |= destination;
-    if ((destination == 0x01) && k==1){
-      datalog();
-      k=0;
+    //if ((destination == FAN_MOTOR) && k==1){
+    if (destination == FAN_MOTOR)
+    {
+      //cli(); // disable interrupts so the timer ISR doesn't trigger
+      //datalog();
+      //sei(); // enable interrupts
+      //k=0;
     }
 }
 
@@ -392,7 +403,6 @@ void loop()
 {
   unsigned char currButtonState = *pin_L & 0x10;
   
-  //if ((*pin_L & 0x10) && (lastButtonState & 0x10))
   if ((currButtonState & 0x10) && !(lastButtonState & 0x10))
   {
     for (volatile unsigned int i = 0; i < 1000; i++);
@@ -400,84 +410,177 @@ void loop()
     if ((*pin_L & 0x10))
     {
       // toggle disabled state
-      if (stateDisabled)
+      //if (stateDisabled)
+      if (systemState == 0)
       {
-        stateDisabled = false;
+        //stateDisabled = false;
+        systemState = 1; // idle
         *myTCCR3B |= 0x01; // enable timer
       }
       else
       {
-        stateDisabled = true;
+        //stateDisabled = true;
+        systemState = 0; // disabled
         *myTCCR3B &= 0xFE; // disable timer
       }
     }
   }
 
-  if (stateDisabled)
+  switch (systemState)
+  {
+  case 0: // disabled
   {
     setToggleable(YELLOW_LED, 1);
     setToggleable(GREEN_LED, 0);
-    setToggleable(BLUE_LED, 0);
     setToggleable(RED_LED, 0);
-    if(x=1){                              //Only turns motor off if motor was previously on
-      setToggleable(FAN_MOTOR, 0);
-      x=0;
-    }
+    setToggleable(BLUE_LED, 0);
+    setToggleable(FAN_MOTOR, 0);
   }
-  else // not disabled
+  break;
+  case 1: // idle
   {
+    setToggleable(YELLOW_LED, 0);
     setToggleable(GREEN_LED, 1);
-
-    //Collect input from ADC for water level
+    setToggleable(RED_LED, 0);
+    setToggleable(BLUE_LED, 0);
+    setToggleable(FAN_MOTOR, 0);
+    
     liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
 
     temperature = dht.readTemperature(true);
     humidity = dht.readHumidity();
 
-    if (temperature >= 72.0f)
-      if(x=0){                              //Only turns motor on if motor was previously off
-        setToggleable(FAN_MOTOR, 1);
-        x=1;
-      }
-    else
-      if(x=1){                              //Only turns motor off if motor was previously on
-        setToggleable(FAN_MOTOR, 0);
-        x=0;
-      }
-
-    lcd.setCursor(0, 0);
     lcd.clear();
-    if (LCDErrorCode != 0)
-      lcd.print(ERROR_MESSAGES[LCDErrorCode]);
-    else
-    {
-      lcd.print("Temp: ");
-      lcd.print(temperature);
-      lcd.print("*F");
-      lcd.setCursor(0, 1);
-      lcd.print("Humi: ");
-      lcd.print(humidity);
-      lcd.print("%");
-    }
+    lcd.setCursor(0, 0);
 
-    //Monitors for fan motor commands and logs data
-    if(KillswitchEngage == 1 && StartFan == 0){             //Logs data when fan turns off
-      datalog();
-      KillswitchEngage = 0;
-    }
-    else if(KillswitchEngage == 0 && StartFan == 1){        //Logs data when fan turns on
-      datalog();
-      StartFan = 0;
-    }
-    
-    //Servo Control
-    unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
-    val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
-    myservo.write(val);                  // sets the servo position according to the scaled value
-    delay(15);                           // waits for the servo to get there
+    lcd.print("Temp: ");
+    lcd.print(temperature);
+    lcd.print("*F");
+    lcd.setCursor(0, 1);
+    lcd.print("Humi: ");
+    lcd.print(humidity);
+    lcd.print("%");
+
+    if (temperature >= 72.0f)
+      systemState = 3; // change to running state
   }
+  break;
+  case 2: // error
+  {
+    setToggleable(YELLOW_LED, 0);
+    setToggleable(GREEN_LED, 0);
+    setToggleable(RED_LED, 1);
+    setToggleable(BLUE_LED, 0);
+    setToggleable(FAN_MOTOR, 0); // explicitly disable fan
+
+    liquid_level = adc_read(0);
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WATER LEVEL LOW");
+  }
+  break;
+  case 3: // running
+  {
+    setToggleable(YELLOW_LED, 0);
+    setToggleable(GREEN_LED, 0);
+    setToggleable(RED_LED, 0);
+    setToggleable(BLUE_LED, 1);
+    setToggleable(FAN_MOTOR, 1);
+
+    liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
+
+    temperature = dht.readTemperature(true);
+    humidity = dht.readHumidity();
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+
+    lcd.print("Temp: ");
+    lcd.print(temperature);
+    lcd.print("*F");
+    lcd.setCursor(0, 1);
+    lcd.print("Humi: ");
+    lcd.print(humidity);
+    lcd.print("%");
+
+    if (temperature < 72.0f)
+      systemState = 1; // change to idle state
+  }
+  break;
+  }
+  
+  //Servo Control - happens every loop
+  unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
+  val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
+  myservo.write(val);                  // sets the servo position according to the scaled value
+  delay(15);                           // waits for the servo to get there
 
   lastButtonState = currButtonState;
+
+  // if (stateDisabled)
+  // {
+  //   setToggleable(YELLOW_LED, 1);
+  //   setToggleable(GREEN_LED, 0);
+  //   setToggleable(BLUE_LED, 0);
+  //   setToggleable(RED_LED, 0);
+  //   if(x=1){                              //Only turns motor off if motor was previously on
+  //     setToggleable(FAN_MOTOR, 0);
+  //     x=0;
+  //   }
+  // }
+  // else // not disabled
+  // {
+  //   setToggleable(GREEN_LED, 1);
+
+  //   //Collect input from ADC for water level
+  //   liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
+
+  //   temperature = dht.readTemperature(true);
+  //   humidity = dht.readHumidity();
+
+  //   if (temperature >= 72.0f)
+  //     if(x=0){                              //Only turns motor on if motor was previously off
+  //       setToggleable(FAN_MOTOR, 1);
+  //       x=1;
+  //     }
+  //   else
+  //     if(x=1){                              //Only turns motor off if motor was previously on
+  //       setToggleable(FAN_MOTOR, 0);
+  //       x=0;
+  //     }
+
+  //   lcd.setCursor(0, 0);
+  //   lcd.clear();
+  //   if (LCDErrorCode != 0)
+  //     lcd.print(ERROR_MESSAGES[LCDErrorCode]);
+  //   else
+  //   {
+  //     lcd.print("Temp: ");
+  //     lcd.print(temperature);
+  //     lcd.print("*F");
+  //     lcd.setCursor(0, 1);
+  //     lcd.print("Humi: ");
+  //     lcd.print(humidity);
+  //     lcd.print("%");
+  //   }
+
+  //   //Monitors for fan motor commands and logs data
+  //   if(KillswitchEngage == 1 && StartFan == 0){             //Logs data when fan turns off
+  //     datalog();
+  //     KillswitchEngage = 0;
+  //   }
+  //   else if(KillswitchEngage == 0 && StartFan == 1){        //Logs data when fan turns on
+  //     datalog();
+  //     StartFan = 0;
+  //   }
+    
+  //   //Servo Control
+  //   unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
+  //   val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
+  //   myservo.write(val);                  // sets the servo position according to the scaled value
+  //   delay(15);                           // waits for the servo to get there
+  // }
 }
 
 // void loop() {
