@@ -78,11 +78,11 @@ Servo myservo;  // create servo object to control a servo
 LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
 
 // DHT humidity/temperature sensor
+// data line goes to digital pin 32
 DHT dht(32, DHT11);
 
 int LCDErrorCode = 0, MotorCrntStatus=0;
 
-bool stateDisabled = false;
 unsigned char lastButtonState = 0x00;
 
 // 0 => disabled (yellow light)
@@ -90,11 +90,6 @@ unsigned char lastButtonState = 0x00;
 // 2 => error (red light)
 // 3 => running (blue light)
 int systemState = 0;
-
-const char * ERROR_MESSAGES[] = {
-  "",
-  "WATER LEVEL LOW"
-};
 
 float temperature = 0.0f;
 float humidity = 0.0f;
@@ -195,11 +190,6 @@ void adc_init(){
                                  //Sets MUX4:0 (bit4-0): Analog Channel and Gain Selecton Bits to zero to reset channel and gain bits
   //set ADCSRB MUX5 (bit 3) to required channel range                              
   *my_ADCSRB &=0xF7;             //For ADC channels 0-7
-}
-
-void toggle(unsigned char destination)
-{
-    *port_b ^= destination;
 }
 
 void setToggleable(unsigned char destination, int logicLevel)
@@ -382,14 +372,6 @@ void datalog(){
   delay(1000);
 }
 
-// new loop
-// check if button is pressed
-//   if so, toggle state
-
-// if not in stateDisabled
-//   do loop
-// else pass
-
 void loop()
 {
   unsigned char currButtonState = *pin_L & 0x10;
@@ -523,131 +505,4 @@ void loop()
   delay(15);                           // waits for the servo to get there
 
   lastButtonState = currButtonState;
-
-  // if (stateDisabled)
-  // {
-  //   setToggleable(YELLOW_LED, 1);
-  //   setToggleable(GREEN_LED, 0);
-  //   setToggleable(BLUE_LED, 0);
-  //   setToggleable(RED_LED, 0);
-  //   if(x=1){                              //Only turns motor off if motor was previously on
-  //     setToggleable(FAN_MOTOR, 0);
-  //     x=0;
-  //   }
-  // }
-  // else // not disabled
-  // {
-  //   setToggleable(GREEN_LED, 1);
-
-  //   //Collect input from ADC for water level
-  //   liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
-
-  //   temperature = dht.readTemperature(true);
-  //   humidity = dht.readHumidity();
-
-  //   if (temperature >= 72.0f)
-  //     if(x=0){                              //Only turns motor on if motor was previously off
-  //       setToggleable(FAN_MOTOR, 1);
-  //       x=1;
-  //     }
-  //   else
-  //     if(x=1){                              //Only turns motor off if motor was previously on
-  //       setToggleable(FAN_MOTOR, 0);
-  //       x=0;
-  //     }
-
-  //   lcd.setCursor(0, 0);
-  //   lcd.clear();
-  //   if (LCDErrorCode != 0)
-  //     lcd.print(ERROR_MESSAGES[LCDErrorCode]);
-  //   else
-  //   {
-  //     lcd.print("Temp: ");
-  //     lcd.print(temperature);
-  //     lcd.print("*F");
-  //     lcd.setCursor(0, 1);
-  //     lcd.print("Humi: ");
-  //     lcd.print(humidity);
-  //     lcd.print("%");
-  //   }
-
-  //   //Monitors for fan motor commands and logs data
-  //   if(KillswitchEngage == 1 && StartFan == 0){             //Logs data when fan turns off
-  //     datalog();
-  //     KillswitchEngage = 0;
-  //   }
-  //   else if(KillswitchEngage == 0 && StartFan == 1){        //Logs data when fan turns on
-  //     datalog();
-  //     StartFan = 0;
-  //   }
-    
-  //   //Servo Control
-  //   unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
-  //   val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
-  //   myservo.write(val);                  // sets the servo position according to the scaled value
-  //   delay(15);                           // waits for the servo to get there
-  // }
 }
-
-// void loop() {
-//   if(!(*pin_L & 0x10)){
-//     for(volatile unsigned int q=0; q<1000;q++){};     //Debounces read and write to verify but is pressed and not noise
-//     if(!(*pin_L & 0x10)){
-//       *myTCCR3B  |= 0x01;                             //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect)
-//       if((*port_b & 0xEF) && (*port_b & 0xBF)){        //Enters idle state, green led, if not in error or running state. 
-//         setToggleable(GREEN_LED, 1);
-//         setToggleable(YELLOW_LED, 0);
-//       }
-//       //Collect input from ADC for water level
-//       liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
-
-//       temperature = dht.readTemperature(true);
-//       humidity = dht.readHumidity();
-
-//       if (temperature >= 75.0f)
-//         setToggleable(FAN_MOTOR, 1);
-//       else
-//         setToggleable(FAN_MOTOR, 0);
-
-//       lcd.setCursor(0, 0);
-//       lcd.clear();
-//       if (LCDErrorCode != 0)
-//         lcd.print(ERROR_MESSAGES[LCDErrorCode]);
-//       else
-//       {
-//         lcd.print("Temp: ");
-//         lcd.print(temperature);
-//         lcd.print("*F");
-//         lcd.setCursor(0, 1);
-//         lcd.print("Humi: ");
-//         lcd.print(humidity);
-//         lcd.print("%");
-//       }
-
-//       //Monitors for fan motor commands and logs data
-//       if(KillswitchEngage == 1 && StartFan == 0){             //Logs data when fan turns off
-//         datalog();
-//         KillswitchEngage = 0;
-//       }
-//       else if(KillswitchEngage == 0 && StartFan == 1){        //Logs data when fan turns on
-//         datalog();
-//         StartFan = 0;
-//       }
-     
-//       //Servo Control
-//       unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
-//       val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
-//       myservo.write(val);                  // sets the servo position according to the scaled value
-//       delay(15);                           // waits for the servo to get there
-//     }  
-//   }
-//   //Disabled state
-//   else{
-//     *myTCCR3B = 0xF8;                      //Stops clock, no prescaler (pg.157), by disabling bit 0, no more monitoring
-//     setToggleable(RED_LED, 0);
-//     setToggleable(GREEN_LED, 0);
-//     setToggleable(BLUE_LED, 0);
-//     setToggleable(YELLOW_LED, 1);
-//     setToggleable(FAN_MOTOR, 0);
-//   }
-// }
