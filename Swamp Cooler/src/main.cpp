@@ -58,6 +58,30 @@ unsigned int clkstart=1;
 unsigned int liquid_level;
 RTC_DS1307 rtc;
 Servo myservo;  // create servo object to control a servo
+
+//LEDs (330 ohm resistor)
+//Yellow => pin 13 (PB7)
+//Blue   => pin 12 (PB6)
+//Green  => pin 11 (PB5)
+//Red    => pin 10 (PB4)
+
+//RTC DS1307 Module pin mapping:
+//SDA => pin20
+//SCL => pin 21
+
+//Temp/Hmdy Sensor pin mapping: (L to R starting at S)
+// pin 32
+// VCC
+// GND
+
+//Water Level Sensor
+// + => VCC
+// - => GND
+// S => A0
+
+//DC Motor Circuit (connect signal to pin 53)
+//  https://www.tutorialspoint.com/arduino/arduino_dc_motor.htm
+
 // Servo mapping:
 // Brown    => ground
 // Red      => VCC
@@ -75,6 +99,12 @@ Servo myservo;  // create servo object to control a servo
 //  Vdd=> 5V
 //  V0 => ground
 //  RW => ground
+//  A =>  5V
+//  K =>  ground
+
+//Disable Dial (Connect input signal to pin 45)
+//    -This code uses LCD Contrast dial control (V0)
+
 LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
 
 // DHT humidity/temperature sensor
