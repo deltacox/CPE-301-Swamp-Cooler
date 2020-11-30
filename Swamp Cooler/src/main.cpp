@@ -80,7 +80,7 @@ LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
 // DHT humidity/temperature sensor
 DHT dht(32, DHT11);
 
-int LCDErrorCode = 0, KillswitchEngage = 0, StartFan = 0;
+int LCDErrorCode = 0, KillswitchEngage = 0, StartFan = 0, x=0, k=0;
 
 bool stateDisabled = false;
 unsigned char lastButtonState = 0x00;
@@ -99,8 +99,11 @@ ISR(TIMER3_OVF_vect){
  
   //Enters Error State
   if(liquid_level <=300){     
-    *port_b = 0x10;             //Turns on PB4-LED and kills motor if ADC value is less that 300.                                
-    KillswitchEngage = 1;       //Sets flag to turn off fan
+    *port_b = 0x10;             //Turns on PB4-LED and kills motor if ADC value is less that 300.
+    if (x==1){
+      KillswitchEngage = 1;       //Sets flag to turn off fan
+      x=0;                                 
+    }
     // sets lcd error code to 1, printing the message "WATER LEVEL LOW"
     LCDErrorCode = 1;
   }
@@ -205,8 +208,9 @@ void setToggleable(unsigned char destination, int logicLevel)
         *port_b &= ~(destination);
     else
         *port_b |= destination;
-    if (destination == 0x01){
+    if ((destination == 0x01) && k==1){
       datalog();
+      k=0;
     }
 }
 
@@ -415,7 +419,10 @@ void loop()
     setToggleable(GREEN_LED, 0);
     setToggleable(BLUE_LED, 0);
     setToggleable(RED_LED, 0);
-    setToggleable(FAN_MOTOR, 0);
+    if(x=1){                              //Only turns motor off if motor was previously on
+      setToggleable(FAN_MOTOR, 0);
+      x=0;
+    }
   }
   else // not disabled
   {
@@ -428,9 +435,15 @@ void loop()
     humidity = dht.readHumidity();
 
     if (temperature >= 72.0f)
-      setToggleable(FAN_MOTOR, 1);
+      if(x=0){                              //Only turns motor on if motor was previously off
+        setToggleable(FAN_MOTOR, 1);
+        x=1;
+      }
     else
-      setToggleable(FAN_MOTOR, 0);
+      if(x=1){                              //Only turns motor off if motor was previously on
+        setToggleable(FAN_MOTOR, 0);
+        x=0;
+      }
 
     lcd.setCursor(0, 0);
     lcd.clear();
@@ -472,7 +485,7 @@ void loop()
 //     for(volatile unsigned int q=0; q<1000;q++){};     //Debounces read and write to verify but is pressed and not noise
 //     if(!(*pin_L & 0x10)){
 //       *myTCCR3B  |= 0x01;                             //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect)
-//       if((*port_b & 0xEF) & (*port_b & 0xBF)){        //Enters idle state, green led, if not in error or running state. 
+//       if((*port_b & 0xEF) && (*port_b & 0xBF)){        //Enters idle state, green led, if not in error or running state. 
 //         setToggleable(GREEN_LED, 1);
 //         setToggleable(YELLOW_LED, 0);
 //       }
