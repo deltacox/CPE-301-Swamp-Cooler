@@ -31,14 +31,6 @@ volatile unsigned int  *my_ADCDATA = (unsigned int  *)0x78;   //Data register is
 volatile unsigned char *portDDR_b = (unsigned char *) 0x24;   //Port B Data Direction Register (pg. 96)
 volatile unsigned char *port_b    = (unsigned char *) 0x25;   //Port B Data Register (pg. 96)
 
-
-// using port B as the port for togglable circuit components (LEDs, fan motor)
-const unsigned char RED_LED    = 0x10; // PB4
-const unsigned char GREEN_LED  = 0x20; // PB5
-const unsigned char BLUE_LED   = 0x40; // PB6
-const unsigned char YELLOW_LED = 0x80; // PB7
-const unsigned char FAN_MOTOR  = 0x01; // PB0
-
 //Timer/Counter Registers
 //Water Level Sensor ISR
 volatile unsigned char *myTCCR3A  = (unsigned char *) 0x90;   //Timer/Counter3 Control Register A (pg. 156)
@@ -53,40 +45,45 @@ volatile unsigned char *portDDR_L = (unsigned char *) 0x10A;   //Port L Data Dir
 volatile unsigned char *port_L    = (unsigned char *) 0x10B;   //Port L Data Register (pg. 96)
 volatile unsigned char *pin_L     = (unsigned char *) 0x109;   //Port L Input Pins Address (pg.96)
 
-//Global Variable
-unsigned int clkstart=1;
-unsigned int liquid_level;
-RTC_DS1307 rtc;
-Servo myservo;  // create servo object to control a servo
-
 //LEDs (330 ohm resistor)
 //Yellow => pin 13 (PB7)
 //Blue   => pin 12 (PB6)
 //Green  => pin 11 (PB5)
 //Red    => pin 10 (PB4)
+// using port B as the port for togglable circuit components (LEDs, fan motor)
+const unsigned char RED_LED    = 0x10; // PB4
+const unsigned char GREEN_LED  = 0x20; // PB5
+const unsigned char BLUE_LED   = 0x40; // PB6
+const unsigned char YELLOW_LED = 0x80; // PB7
+const unsigned char FAN_MOTOR  = 0x01; // PB0
 
 //RTC DS1307 Module pin mapping:
 //SDA => pin20
 //SCL => pin 21
+RTC_DS1307 rtc;
 
 //Temp/Hmdy Sensor pin mapping: (L to R starting at S)
 // pin 32
 // VCC
 // GND
+DHT dht(32, DHT11);
+float temperature = 0.0f;
+float humidity = 0.0f;
 
 //Water Level Sensor
 // + => VCC
 // - => GND
 // S => A0
+unsigned int liquid_level;
 
 //DC Motor Circuit (connect signal to pin 53)
 //  https://www.tutorialspoint.com/arduino/arduino_dc_motor.htm
-
 // Servo mapping:
 // Brown    => ground
 // Red      => VCC
 // Orange   => digital 49
 // Pot dial => ADC A1
+Servo myservo;  // create servo object to control a servo
 
 // LCD pin mapping:
 //  RS => digital 23
@@ -101,18 +98,13 @@ Servo myservo;  // create servo object to control a servo
 //  RW => ground
 //  A =>  5V
 //  K =>  ground
+LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
 
 //Disable Dial (Connect input signal to pin 45)
 //    -This code uses LCD Contrast dial control (V0)
 
-LiquidCrystal lcd(23, 25, 22, 24, 26, 28);
-
-// DHT humidity/temperature sensor
-// data line goes to digital pin 32
-DHT dht(32, DHT11);
-
-int LCDErrorCode = 0, MotorCrntStatus=0;
-
+int MotorCrntStatus=0;
+unsigned int clkstart=1;
 unsigned char lastButtonState = 0x00;
 
 // 0 => disabled (yellow light)
@@ -121,51 +113,26 @@ unsigned char lastButtonState = 0x00;
 // 3 => running (blue light)
 int systemState = 0;
 
-float temperature = 0.0f;
-float humidity = 0.0f;
+const float TEMPERATURE_THRESHOLD = 72.0f;
+
 
 ISR(TIMER3_OVF_vect){
   *myTCCR3B &= 0xF8;             //Stops clock, no prescaler (pg.157), by disabling bit 0
   *myTCNT3 = clkstart;           //Sets point for Timer/Counter1 to count up form (pg.158)
  
   //Enters Error State
-  if(liquid_level <=300){     
+  if(liquid_level <=300)
+  {     
     systemState = 2;
-    // sets lcd error code to 1, printing the message "WATER LEVEL LOW"
-    LCDErrorCode = 1;
   }
   //Transistions to Idle State if water was previously low
-  else{
-
-    if(LCDErrorCode){     //Go to Idle State
+  else
+  {
+    if (systemState == 2)
       systemState = 1;
-    }
-    // sets error message to none
-    LCDErrorCode = 0;
   }
   
   *myTCCR3B |= 0x01;    //Starts clock, (pg 157), by enbling bit 0
-}
-
-//initailizes the communication lines with the desired baud rate
-void U0init(unsigned long U0baud)       //Serial.begin()
-{
- unsigned long FCPU = 16000000;
- unsigned int tbaud;
- tbaud = (FCPU / 16 / U0baud - 1);
- // Same as (FCPU / (16 * U0baud)) - 1;
- *my_UCSR0A = 0x20;                       
- *my_UCSR0B = 0x18;                      
- *my_UCSR0C = 0x06;                      
- *my_UBRR0L = tbaud;                     
-}
-
-// Read USART0 RDA status bit and return non-zero true if set
-unsigned char U0kbhit()        //Serial.available
-{
-  if (*my_UDR0 & RDA){       //verifies established communications are clear 
-    return 1;                //for the USART I/O Data Register 0
-  }
 }
 
 void setup() {
@@ -205,6 +172,137 @@ void setup() {
   dht.begin();
 }
 
+void loop()
+{
+  unsigned char currButtonState = *pin_L & 0x10;
+  
+  if ((currButtonState & 0x10) && !(lastButtonState & 0x10))
+  {
+    for (volatile unsigned int i = 0; i < 1000; i++);
+
+    if ((*pin_L & 0x10))
+    {
+      // toggle disabled state
+      if (systemState == 0)
+      {
+        systemState = 1; // idle
+        *myTCCR3B |= 0x01; // enable timer
+      }
+      else
+      {
+        systemState = 0; // disabled
+        *myTCCR3B &= 0xFE; // disable timer
+      }
+    }
+  }
+
+  switch (systemState)
+  {
+  case 0: // disabled
+  {
+    setToggleable(YELLOW_LED, 1);
+    setToggleable(GREEN_LED, 0);
+    setToggleable(RED_LED, 0);
+    setToggleable(BLUE_LED, 0);
+    if(MotorCrntStatus==1){
+      setToggleable(FAN_MOTOR, 0);
+      MotorCrntStatus =0;
+    }
+  }
+  break;
+  case 1: // idle
+  {
+    setToggleable(YELLOW_LED, 0);
+    setToggleable(GREEN_LED, 1);
+    setToggleable(RED_LED, 0);
+    setToggleable(BLUE_LED, 0);
+    
+    if(MotorCrntStatus==1){
+      setToggleable(FAN_MOTOR, 0); // explicitly disable fan
+      MotorCrntStatus =0;
+    }
+    
+    liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
+
+    temperature = dht.readTemperature(true);
+    humidity = dht.readHumidity();
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+
+    lcd.print("Temp: ");
+    lcd.print(temperature);
+    lcd.print("*F");
+    lcd.setCursor(0, 1);
+    lcd.print("Humi: ");
+    lcd.print(humidity);
+    lcd.print("%");
+
+    if (temperature >= TEMPERATURE_THRESHOLD)
+      systemState = 3; // change to running state
+  }
+  break;
+  case 2: // error
+  {
+    setToggleable(YELLOW_LED, 0);
+    setToggleable(GREEN_LED, 0);
+    setToggleable(RED_LED, 1);
+    setToggleable(BLUE_LED, 0);
+
+    if(MotorCrntStatus==1){
+      setToggleable(FAN_MOTOR, 0); // explicitly disable fan
+      MotorCrntStatus =0;
+    }
+    
+    liquid_level = adc_read(0);
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("WATER LEVEL LOW");
+  }
+  break;
+  case 3: // running
+  {
+    setToggleable(YELLOW_LED, 0);
+    setToggleable(GREEN_LED, 0);
+    setToggleable(RED_LED, 0);
+    setToggleable(BLUE_LED, 1);
+    
+    if(MotorCrntStatus==0){
+      setToggleable(FAN_MOTOR, 1);
+      MotorCrntStatus=1;
+    }
+    
+    liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
+
+    temperature = dht.readTemperature(true);
+    humidity = dht.readHumidity();
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+
+    lcd.print("Temp: ");
+    lcd.print(temperature);
+    lcd.print("*F");
+    lcd.setCursor(0, 1);
+    lcd.print("Humi: ");
+    lcd.print(humidity);
+    lcd.print("%");
+
+    if (temperature < TEMPERATURE_THRESHOLD)
+      systemState = 1; // change to idle state
+  }
+  break;
+  }
+  
+  //Servo Control - happens every loop
+  unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
+  val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
+  myservo.write(val);                  // sets the servo position according to the scaled value
+  delay(15);                           // waits for the servo to get there
+
+  lastButtonState = currButtonState;
+}
 
 void adc_init(){
   //Setup the ADCSRA Register
@@ -222,20 +320,6 @@ void adc_init(){
   *my_ADCSRB &=0xF7;             //For ADC channels 0-7
 }
 
-void setToggleable(unsigned char destination, int logicLevel)
-{
-    if (logicLevel == 0)
-        *port_b &= ~(destination);
-    else
-        *port_b |= destination;
-
-    if ((destination == FAN_MOTOR)){
-      *myTCCR3B = 0xF8;                      //Stops clock, no prescaler (pg.157), by disabling bit 0, no more monitoring
-      datalog();
-      *myTCCR3B  |= 0x01;                    //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect)
-    }
-}
-
 unsigned int adc_read(unsigned char adc_channel){
   unsigned char muxmask[]= {64,65,66,67,68,69,70,71,64,65,66,67,68,69,70,71};
   unsigned char channel[]= {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
@@ -251,6 +335,27 @@ unsigned int adc_read(unsigned char adc_channel){
   *my_ADCSRA |= 0b01000000;                //Enable bit 6: ADSC: ADC Start conversion
   while ((*my_ADCSRA &0b01000000) !=0);    //Wait for bit 6 to equal zero meaning that conversion is complete
   return *my_ADCDATA;                      //Returns the resulting conversion data in the ADC data register 
+}
+
+//initailizes the communication lines with the desired baud rate
+void U0init(unsigned long U0baud)       //Serial.begin()
+{
+ unsigned long FCPU = 16000000;
+ unsigned int tbaud;
+ tbaud = (FCPU / 16 / U0baud - 1);
+ // Same as (FCPU / (16 * U0baud)) - 1;
+ *my_UCSR0A = 0x20;                       
+ *my_UCSR0B = 0x18;                      
+ *my_UCSR0C = 0x06;                      
+ *my_UBRR0L = tbaud;                     
+}
+
+// Read USART0 RDA status bit and return non-zero true if set
+unsigned char U0kbhit()        //Serial.available
+{
+  if (*my_UDR0 & RDA){       //verifies established communications are clear 
+    return 1;                //for the USART I/O Data Register 0
+  }
 }
 
 void datalog(){
@@ -402,137 +507,16 @@ void datalog(){
   delay(1000);
 }
 
-void loop()
+void setToggleable(unsigned char destination, int logicLevel)
 {
-  unsigned char currButtonState = *pin_L & 0x10;
-  
-  if ((currButtonState & 0x10) && !(lastButtonState & 0x10))
-  {
-    for (volatile unsigned int i = 0; i < 1000; i++);
+    if (logicLevel == 0)
+        *port_b &= ~(destination);
+    else
+        *port_b |= destination;
 
-    if ((*pin_L & 0x10))
-    {
-      // toggle disabled state
-      //if (stateDisabled)
-      if (systemState == 0)
-      {
-        //stateDisabled = false;
-        systemState = 1; // idle
-        *myTCCR3B |= 0x01; // enable timer
-      }
-      else
-      {
-        //stateDisabled = true;
-        systemState = 0; // disabled
-        *myTCCR3B &= 0xFE; // disable timer
-      }
+    if ((destination == FAN_MOTOR)){
+      *myTCCR3B = 0xF8;                      //Stops clock, no prescaler (pg.157), by disabling bit 0, no more monitoring
+      datalog();
+      *myTCCR3B  |= 0x01;                    //Starts clock, (pg 157), by enbling bit 0 for ISR(TIMER3_OVF_vect)
     }
-  }
-
-  switch (systemState)
-  {
-  case 0: // disabled
-  {
-    setToggleable(YELLOW_LED, 1);
-    setToggleable(GREEN_LED, 0);
-    setToggleable(RED_LED, 0);
-    setToggleable(BLUE_LED, 0);
-    if(MotorCrntStatus==1){
-      setToggleable(FAN_MOTOR, 0);
-      MotorCrntStatus =0;
-    }
-  }
-  break;
-  case 1: // idle
-  {
-    setToggleable(YELLOW_LED, 0);
-    setToggleable(GREEN_LED, 1);
-    setToggleable(RED_LED, 0);
-    setToggleable(BLUE_LED, 0);
-    
-    if(MotorCrntStatus==1){
-      setToggleable(FAN_MOTOR, 0); // explicitly disable fan
-      MotorCrntStatus =0;
-    }
-    
-    liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
-
-    temperature = dht.readTemperature(true);
-    humidity = dht.readHumidity();
-
-    lcd.clear();
-    lcd.setCursor(0, 0);
-
-    lcd.print("Temp: ");
-    lcd.print(temperature);
-    lcd.print("*F");
-    lcd.setCursor(0, 1);
-    lcd.print("Humi: ");
-    lcd.print(humidity);
-    lcd.print("%");
-
-    if (temperature >= 72.0f)
-      systemState = 3; // change to running state
-  }
-  break;
-  case 2: // error
-  {
-    setToggleable(YELLOW_LED, 0);
-    setToggleable(GREEN_LED, 0);
-    setToggleable(RED_LED, 1);
-    setToggleable(BLUE_LED, 0);
-
-    if(MotorCrntStatus==1){
-      setToggleable(FAN_MOTOR, 0); // explicitly disable fan
-      MotorCrntStatus =0;
-    }
-    
-    liquid_level = adc_read(0);
-
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("WATER LEVEL LOW");
-  }
-  break;
-  case 3: // running
-  {
-    setToggleable(YELLOW_LED, 0);
-    setToggleable(GREEN_LED, 0);
-    setToggleable(RED_LED, 0);
-    setToggleable(BLUE_LED, 1);
-    
-    if(MotorCrntStatus==0){
-      setToggleable(FAN_MOTOR, 1);
-      MotorCrntStatus=1;
-    }
-    
-    liquid_level= adc_read(0);                      //takes input from ADC A0 for reading
-
-    temperature = dht.readTemperature(true);
-    humidity = dht.readHumidity();
-
-    lcd.clear();
-    lcd.setCursor(0, 0);
-
-    lcd.print("Temp: ");
-    lcd.print(temperature);
-    lcd.print("*F");
-    lcd.setCursor(0, 1);
-    lcd.print("Humi: ");
-    lcd.print(humidity);
-    lcd.print("%");
-
-    if (temperature < 72.0f)
-      systemState = 1; // change to idle state
-  }
-  break;
-  }
-  
-  //Servo Control - happens every loop
-  unsigned int val = adc_read(1);      // reads the value of the potentiometer (value between 0 and 1023)
-  val = map(val, 0, 1023, 0, 180);     // scale it to use it with the servo (value between 0 and 180)
-  myservo.write(val);                  // sets the servo position according to the scaled value
-  delay(15);                           // waits for the servo to get there
-
-  lastButtonState = currButtonState;
 }
